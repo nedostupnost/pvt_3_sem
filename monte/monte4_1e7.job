@@ -1,5 +1,5 @@
 #!/bin/sh
-#SBATCH --nodes=1 --ntasks-per-node=4
+#SBATCH --nodes=2 --ntasks-per-node=4
 #SBATCH --job-name=monte4_1e7
 
 cd $SLURM_SUBMIT_DIR

@@ -1,6 +1,6 @@
 #!/bin/sh
-#SBATCH --nodes=1 --ntasks-per-node=40
+#SBATCH --nodes=2 --ntasks-per-node=40
 #SBATCH --job-name=monte40_1e8
 
 cd $SLURM_SUBMIT_DIR
-mpiexec ./monte 100000000
+mpiexec --map-by core:oversubscribe ./monte 100000000

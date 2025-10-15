@@ -1,0 +1,10 @@
+=== Monte Carlo Integration ===
+Function: f(x,y) = exp(x-y)
+Domain: x ∈ [-1, 0], y ∈ [0, 1]
+Number of processes: 104
+Number of points: 100000000
+
+=== Results ===
+Integral value: 0.3995798084
+Execution time: 0.291334 seconds
+Points per second: 3.432487e+08

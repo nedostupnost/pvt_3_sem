@@ -1,0 +1,9 @@
+Iteration 1: n = 200, I = 0.1993779278, error = 3.6490255909e-09
+
+=== Results ===
+Processes: 56
+Final integral value: 0.1993779278
+Final error estimate: 3.6490255909e-09
+Number of iterations: 1
+Final n: 200
+Execution time: 0.000602 seconds

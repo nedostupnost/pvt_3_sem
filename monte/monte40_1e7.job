@@ -3,4 +3,4 @@
 #SBATCH --job-name=monte40_1e7
 
 cd $SLURM_SUBMIT_DIR
-mpiexec ./monte 10000000
+mpiexec --map-by core:oversubscribe ./monte 10000000

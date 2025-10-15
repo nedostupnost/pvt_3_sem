@@ -3,4 +3,4 @@
 #SBATCH --job-name=midpoint64
 
 cd $SLURM_SUBMIT_DIR
-mpiexec ./midpoint
+mpiexec --map-by core:oversubscribe  ./midpoint
