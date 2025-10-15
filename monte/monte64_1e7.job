@@ -1,0 +1,6 @@
+#!/bin/sh
+#SBATCH --nodes=1 --ntasks-per-node=64
+#SBATCH --job-name=monte64_1e7
+
+cd $SLURM_SUBMIT_DIR
+mpiexec ./monte 10000000

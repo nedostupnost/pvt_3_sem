@@ -1,0 +1,2 @@
+mpicxx -O3 -o monte monte.cpp -lm
+chmod +x monte
