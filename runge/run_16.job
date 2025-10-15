@@ -1,0 +1,6 @@
+#!/bin/sh
+#SBATCH --nodes=1 --ntasks-per-node=16
+#SBATCH --job-name=midpoint16
+
+cd $SLURM_SUBMIT_DIR
+mpiexec ./midpoint
