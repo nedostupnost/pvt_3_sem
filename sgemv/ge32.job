@@ -1,0 +1,7 @@
+#!/bin/sh
+#SBATCH --nodes=1 --ntasks-per-node=32
+#SBATCH --job-name=gemv32
+
+cd $SLURM_SUBMIT_DIR
+# mpicc -O3 -o sgemv sgemv.cpp -lm
+mpiexec ./sgemv
