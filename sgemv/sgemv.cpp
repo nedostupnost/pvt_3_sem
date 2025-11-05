@@ -9,126 +9,112 @@
 constexpr int n = 45000;
 constexpr int m = 45000;
 
-double wtime()
-{
+double wtime() {
     timeval t{};
     gettimeofday(&t, nullptr);
     return static_cast<double>(t.tv_sec) + static_cast<double>(t.tv_usec) * 1e-6;
 }
 
-void get_chunk(int a, int b, int commsize, int rank, int &lb, int &ub)
-{
-    int N = b - a + 1;
-    int q = N / commsize;
-    if (N % commsize)
-        q++;
-    int r = commsize * q - N;
-
-    int chunk = q;
-    if (rank >= commsize - r)
-        chunk = q - 1;
-
-    lb = a;
-    if (rank > 0)
-    {
-        if (rank <= commsize - r)
-            lb += q * rank;
-        else
-            lb += q * (commsize - r) + (q - 1) * (rank - (commsize - r));
+inline void split_range_blocked(int a, int b, int nprocs, int proc_id, int &lo, int &hi) {
+    const int N = b - a + 1;
+    const int q = N / nprocs;
+    const int r = N % nprocs;
+    if (proc_id < r) {
+        lo = a + proc_id * (q + 1);
+        hi = lo + (q + 1) - 1;
+    } else {
+        lo = a + r * (q + 1) + (proc_id - r) * q;
+        hi = lo + q - 1;
     }
-    ub = lb + chunk - 1;
 }
 
-void sgemv(const std::vector<float> &a, const std::vector<float> &b, std::vector<float> &c,
-           int m_total, int n_total, int lb, int ub, MPI_Comm comm)
+void sgemv_rows(const std::vector<float> &mat, const std::vector<float> &vec,
+                std::vector<float> &out, int m_total, int n_total,
+                int row_lo, int row_hi, MPI_Comm comm)
 {
-    int commsize, rank;
-    MPI_Comm_size(comm, &commsize);
-    MPI_Comm_rank(comm, &rank);
+    int nprocs = 1, proc_id = 0;
+    MPI_Comm_size(comm, &nprocs);
+    MPI_Comm_rank(comm, &proc_id);
 
-    int nrows = ub - lb + 1;
+    const int local_rows = row_hi - row_lo + 1;
 
-    for (int i = 0; i < nrows; ++i)
-    {
-        float sum = 0.0f;
-        const float *row = &a[i * n_total];
-        for (int j = 0; j < n_total; ++j)
-            sum += row[j] * b[j];
-        c[lb + i] = sum;
+    for (int i = 0; i < local_rows; ++i) {
+        const float* rowp = &mat[static_cast<size_t>(i) * n_total];
+        float acc = 0.0f;
+        for (int j = 0; j < n_total; ++j) {
+            acc += rowp[j] * vec[j];
+        }
+        out[row_lo + i] = acc;
     }
 
-    std::vector<int> rcounts(commsize), displs(commsize);
-    for (int i = 0; i < commsize; ++i)
-    {
-        int l, u;
-        get_chunk(0, m_total - 1, commsize, i, l, u);
-        rcounts[i] = u - l + 1;
-        displs[i] = (i == 0) ? 0 : displs[i - 1] + rcounts[i - 1];
+    std::vector<int> seg_counts(nprocs), seg_offsets(nprocs);
+    for (int r = 0; r < nprocs; ++r) {
+        int lo, hi;
+        split_range_blocked(0, m_total - 1, nprocs, r, lo, hi);
+        seg_counts[r]  = hi - lo + 1;
+        seg_offsets[r] = lo;
     }
 
-    MPI_Allgatherv(MPI_IN_PLACE, nrows, MPI_FLOAT,
-                   c.data(), rcounts.data(), displs.data(),
+    MPI_Allgatherv(MPI_IN_PLACE, 0, MPI_DATATYPE_NULL,
+                   out.data(), seg_counts.data(), seg_offsets.data(),
                    MPI_FLOAT, comm);
 }
 
-int main(int argc, char **argv)
-{
+int main(int argc, char **argv) {
     MPI_Init(&argc, &argv);
 
-    int commsize, rank;
-    MPI_Comm_size(MPI_COMM_WORLD, &commsize);
-    MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+    int nprocs = 1, proc_id = 0;
+    MPI_Comm_size(MPI_COMM_WORLD, &nprocs);
+    MPI_Comm_rank(MPI_COMM_WORLD, &proc_id);
 
     double t0 = wtime();
 
-    int lb, ub;
-    get_chunk(0, m - 1, commsize, rank, lb, ub);
-    int nrows = ub - lb + 1;
+    int row_lo = 0, row_hi = -1;
+    split_range_blocked(0, m - 1, nprocs, proc_id, row_lo, row_hi);
+    const int local_rows = row_hi - row_lo + 1;
 
-    std::vector<float> A(static_cast<size_t>(nrows) * n);
-    std::vector<float> B(static_cast<size_t>(n));
-    std::vector<float> C(static_cast<size_t>(m));
+    std::vector<float> mat(static_cast<size_t>(local_rows) * n);
+    std::vector<float> vec(static_cast<size_t>(n));
+    std::vector<float> out(static_cast<size_t>(m));
 
-    for (int i = 0; i < nrows; ++i)
-    {
-        float val = static_cast<float>(lb + i + 1);
-        for (int j = 0; j < n; ++j)
-            A[i * n + j] = val;
+    for (int i = 0; i < local_rows; ++i) {
+        float val = static_cast<float>(row_lo + i + 1);
+        float* rowp = &mat[static_cast<size_t>(i) * n];
+        for (int j = 0; j < n; ++j) rowp[j] = val;
     }
 
-    for (int j = 0; j < n; ++j)
-        B[j] = static_cast<float>(j + 1);
+    for (int j = 0; j < n; ++j) vec[j] = static_cast<float>(j + 1);
 
-    sgemv(A, B, C, m, n, lb, ub, MPI_COMM_WORLD);
+    sgemv_rows(mat, vec, out, m, n, row_lo, row_hi, MPI_COMM_WORLD);
 
     double elapsed = wtime() - t0;
 
     bool valid = true;
-    if (rank == 0)
-    {
-        for (int i = 0; i < m; ++i)
-        {
-            double expected = (i + 1) * (n / 2.0 + std::pow(static_cast<double>(n), 2) / 2.0);
-            if (std::fabs(C[i] - expected) > 1e-4)
-            {
+    if (proc_id == 0) {
+        const double sum_j = static_cast<double>(n) * (n + 1) / 2.0;
+        for (int i = 0; i < m; ++i) {
+            double expected = (i + 1) * sum_j;
+            if (std::fabs(out[i] - expected) > 1e-3) {
                 std::cerr << "Validation failed at element " << i
-                          << ": got " << C[i] << ", expected " << expected << "\n";
+                          << ": got " << out[i] << ", expected " << expected << "\n";
                 valid = false;
                 break;
             }
         }
     }
 
-    if (rank == 0)
-    {
-        uint64_t mem = static_cast<uint64_t>((static_cast<double>(m) * n + m + n) * sizeof(float)) >> 20;
-        double gflop = 2.0 * m * n * 1e-9;
+    if (proc_id == 0) {
+        uint64_t mem_local_bytes =
+            (static_cast<uint64_t>(local_rows) * n + m + n) * sizeof(float);
+        double mem_local_mib = static_cast<double>(mem_local_bytes) / (1024.0 * 1024.0);
+
+        double gflop = 2.0 * static_cast<double>(m) * static_cast<double>(n) * 1e-9;
 
         std::cout << std::fixed << std::setprecision(6);
         std::cout << "SGEMV: C[m] = A[m,n] * B[n]\n";
-        std::cout << "Processes: " << commsize << "\n";
+        std::cout << "Processes: " << nprocs << "\n";
         std::cout << "Matrix size: " << m << " x " << n << "\n";
-        std::cout << "Memory used per process: " << mem << " MiB\n";
+        std::cout << "Memory used per process: " << mem_local_mib << " MiB\n";
         std::cout << "Elapsed time: " << elapsed << " s\n";
         std::cout << "Performance: " << (gflop / elapsed) << " GFLOPS\n";
         std::cout << (valid ? "Validation passed" : "Validation failed") << "\n";
